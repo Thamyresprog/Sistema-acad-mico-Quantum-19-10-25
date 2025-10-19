@@ -1,0 +1,583 @@
+import random
+import string
+
+# ==============================================================================
+#                      DADOS GLOBAIS E ESTRUTURAS
+# ==============================================================================
+
+# Dicionários de Nomes para geração aleatória (simulando a biblioteca Faker)
+NOMES = ["Ana", "Sergio", "Giovanna", "Luana", "Pedro", "Thamyres", "Lorrany", "Yeda", "Bruna", "Cleyton", "Bruno", "Carla", "Daniel", "Eduarda", "Felipe", "Gabriela", "Hugo", "Isabela", "Julio", "Lucilene", "Larissa", "Amanda", "Lucas", "Matheus", "Silvana", "Roberto"]
+SOBRENOMES = ["Silva", "Santos", "Oliveira", "Souza", "Amorim", "Pereira", "Costa", "Rodrigues", "Almeida", "Nascimento", "Lopes", "Bandeira"]
+
+# Dados de Login
+USUARIOS_TESTE = {
+    "aluno@quantum.com": {"senha": "Aluno#123", "papel": "Aluno"},
+    "professor@quantum.com": {"senha": "Professor#123", "papel": "Professor"},
+    "secretaria@quantum.com": {"senha": "Secretaria#123", "papel": "Secretaria"},
+    "gestorcampus@quantum.com": {"senha": "Gestor#123", "papel": "Gestor de Campus"},
+    "coordenador@quantum.com": {"senha": "Coord#123", "papel": "Coordenador de Curso"},
+    "financeiro@quantum.com": {"senha": "Finan#123", "papel": "Financeiro / Tesouraria"}
+}
+
+CURSOS_OFERECIDOS = [
+    "Engenharia de Software",
+    "Análise e Desenvolvimento de Sistemas",
+    "Ciência de Dados",
+    "Gestão de TI"
+]
+
+COORDENADORES = {
+    "Engenharia de Software": "Prof. Eduardo Melo",
+    "Análise e Desenvolvimento de Sistemas": "Profa. Alice Guedes",
+    "Ciência de Dados": "Prof. Roberto Dutra",
+    "Gestão de TI": "Profa. Fernanda Lima"
+}
+
+# Estruturas de Persistência (Variáveis Globais)
+ALUNOS_ONLINE_PENDENTES = [] # Cadastros incompletos feitos pela opção "1"
+ALUNOS_MATRICULADOS = []     # Lista principal de todos os alunos no sistema
+TURMAS_GERADAS = {}          # Dicionário para armazenar a estrutura de turmas
+
+# ==============================================================================
+#                      FUNÇÕES AUXILIARES DE GERAÇÃO DE DADOS
+# ==============================================================================
+
+def gerar_ra():
+    """Formato: 2 letras maiúsculas + 5 números + 1 letra maiúscula (Ex: AB12345C)"""
+    letras_inicio = ''.join(random.choices(string.ascii_uppercase, k=2))
+    numeros = ''.join(random.choices(string.digits, k=5))
+    letra_final = random.choice(string.ascii_uppercase)
+    return f"{letras_inicio}{numeros}{letra_final}"
+
+def gerar_nome_completo():
+    """Gera um nome e sobrenome aleatórios."""
+    return f"{random.choice(NOMES)} {random.choice(SOBRENOMES)} {random.choice(SOBRENOMES)}"
+
+def gerar_notas_e_media():
+    """Gera P1, P2, Trabalho e calcula Média e Exame (se necessário)."""
+    p1 = round(random.uniform(4.0, 10.0), 1)
+    p2 = round(random.uniform(4.0, 10.0), 1)
+    trabalho = round(random.uniform(7.0, 10.0), 1)
+    
+    media = round((p1 + p2 + trabalho) / 3, 1)
+    
+    exame = None
+    if media < 7.0:
+        # Nota mínima para passar no exame é 5.0 (Média final >= 5.0)
+        # Exame precisa ser: (5.0 * 2) - media. Arredondamos.
+        nota_necessaria = max(0, round((10.0 - media), 1))
+        
+        # Gera uma nota de exame aleatória (pode passar ou não)
+        if random.random() < 0.6: # 60% de chance de atingir a nota
+             exame_nota = round(random.uniform(nota_necessaria, 10.0), 1)
+        else:
+             exame_nota = round(random.uniform(0.0, nota_necessaria - 0.1), 1)
+             
+        exame = exame_nota
+        media_final = round((media + exame) / 2, 1)
+    else:
+        media_final = media
+
+    return {
+        "P1": p1,
+        "P2": p2,
+        "Trabalho": trabalho,
+        "Media": media,
+        "Exame": exame if exame is not None else "-",
+        "MediaFinal": media_final,
+        "Situacao": "Aprovado" if media_final >= 7.0 else ("Aprovado com Exame" if media_final >= 5.0 else "Reprovado")
+    }
+
+def gerar_aluno_completo(curso, horario, turma_nome, coordenador):
+    """Cria um registro completo de aluno."""
+    notas = gerar_notas_e_media()
+    
+    return {
+        "RA": gerar_ra(),
+        "NomeCompleto": gerar_nome_completo(),
+        "Curso": curso,
+        "Horario": horario,
+        "Turma": turma_nome,
+        "Faltas": random.randint(0, 5),
+        "Coordenador": coordenador,
+        "Notas": notas,
+        "InformacoesPessoais": {
+            "Email": f"aluno{random.randint(100, 999)}@edu.com",
+            "CPF": f"{random.randint(100, 999)}.{random.randint(100, 999)}.{random.randint(100, 999)}-{random.randint(10, 99)}",
+            "CEP": f"{random.randint(10000, 99999)}-{random.randint(100, 999)}",
+            "DataNascimento": f"{random.randint(1, 28)}/{random.randint(1, 12)}/{random.randint(1990, 2005)}"
+        }
+    }
+
+def preencher_turmas():
+    """Gera a estrutura de todas as turmas do sistema, incluindo alunos."""
+    
+    global TURMAS_GERADAS
+    TURMAS_GERADAS = {}
+    
+    # --- Parâmetros de Geração ---
+    # Para Secretaria (Visão Ampla: 5 Mat, 10 Not, 20 EAD)
+    turmas_secretaria = {
+        "Matutino": 5, "Noturno": 10, "EAD": 20
+    }
+    
+    # Para Professor (Visão Restrita: 1 Mat, 1 Not, 1 EAD por curso)
+    
+    for curso in CURSOS_OFERECIDOS:
+        coordenador = COORDENADORES[curso]
+        
+        # Geração para Secretaria (Estrutura Completa)
+        for horario, num_turmas in turmas_secretaria.items():
+            for i in range(1, num_turmas + 1):
+                turma_nome = f"{curso[:3].upper()}-{horario[0]}-T{i}"
+                num_alunos = random.randint(60, 100)
+                
+                alunos = [gerar_aluno_completo(curso, horario, turma_nome, coordenador) for _ in range(num_alunos)]
+                
+                if curso not in TURMAS_GERADAS:
+                    TURMAS_GERADAS[curso] = {}
+                
+                TURMAS_GERADAS[curso][turma_nome] = {
+                    "Horario": horario,
+                    "Coordenador": coordenador,
+                    "Alunos": alunos
+                }
+                # Adiciona alunos à lista geral (para a secretaria poder matricular)
+                ALUNOS_MATRICULADOS.extend(alunos)
+
+# Executa a geração de turmas e alunos no início
+preencher_turmas()
+
+def tela_login_acesso_inicial():
+    #1. Tela de Login/Acesso Inicial
+    print("=" * 60)
+    print("Bem-vindo(a) à Plataforma da Universidade Quantum:".center(60))
+    print("centro de inovações e tecnologia".center(60))
+    print("=" * 60)
+
+    while True:
+        print("\nOpções de Acesso:")
+        print("1. Quero me tornar aluno")
+        print("2. Já sou aluno(a)")
+        print("3. Sou Colaborador(a)")
+        print("4. Sair")
+
+        opcao = input("Selecione uma opção (1, 2, 3 ou 4): ")
+
+        if opcao == '1':
+            fluxo_novo_aluno()
+        elif opcao == '2':
+            fluxo_login("Aluno")
+        elif opcao == '3':
+            fluxo_login("Colaborador") #Login de colaborador
+        elif opcao == '4':
+            print("\nObrigado por utilizar a plataforma. Até logo!")
+
+            input("\nPressione ENTER para voltar ao Menu Inicial...")
+        else:
+            print("Opção inválida. Tente novamente.")
+
+            input("\nPressione ENTER para voltar ao Menu Inicial...")
+
+
+def fluxo_novo_aluno(): 
+    #2. Fluxo: Opção 1 - Quero me tornar aluno (Novo Aluno)
+    print("\n" + "=" * 20)
+    print("ÁREA DE CADASTRO")
+    print("=" * 20)
+
+    # Solicitação de Informações
+    Nome = input("Nome Completo: ")
+    email = input("E-mail Pessoal: ")
+    celular = input("Número de Celular: ")
+    datan = input("Data de nascimento (DD/MM/AAAA): ")
+    CPF = input("CPF: ")
+    CEP = input("informe o CEP da sua residência:")
+    
+    print("\nCursos de Interesse:")
+    for i, curso in enumerate(CURSOS_OFERECIDOS):
+        print(f"[{i+1}] {curso}")
+
+    while True:
+        try:
+            escolha_curso = int(input("Indique o número a frente do Curso de interesse: "))
+            if 1 <= escolha_curso <= len(CURSOS_OFERECIDOS):
+                Curso_interesse = CURSOS_OFERECIDOS[escolha_curso - 1]
+                break
+            else:
+                print("Número de curso inválido.")
+        except ValueError:
+            print("Entrada inválida. Digite um número.")
+
+    horario = input("Horário de interesse (Ex: Matutino, Noturno, ou EAD): ")
+
+   # SALVAR DADOS NO GLOBO PARA A SECRETARIA VER
+    novo_cadastro = {
+        "nome_completo": Nome,
+        "email": email,
+        "celular": celular,
+        "curso_interesse": Curso_interesse,
+        "horario_interesse": horario,
+        "data_nasc": datan,
+        "CPF": CPF,
+        "CEP": CEP
+    }
+
+    ALUNOS_ONLINE_PENDENTES.append(novo_cadastro) 
+
+    # Pós-Cadastro: Contatos
+    print("\n---")
+    print(f"{Nome} Seu cadastro inicial foi enviado com sucesso!")
+    print("No momneto, está PENDENTE DE MATRÍCULA na Secretaria.")
+    print("Contate-nos para finalizar seu contrato: (11) 3548-9000")
+    print("---")
+    print("  E-mail: atendimento@quantum.com.br")
+    input("\nPressione ENTER para voltar ao Menu Inicial e conhcer mais sobre a gente.")
+
+def fluxo_login(tipo_acesso):
+    #3. Fluxo: Opções 2 - Já sou aluno(a) e 3 - Sou Colaborador(a)
+    papel_login = "Aluno" if tipo_acesso == "Aluno" else "Colaborador"
+    
+    print(f"\n--- ACESSO {tipo_acesso.upper()} ---")
+
+    email = input("E-mail (Login): ")
+    senha = input("Senha: ")
+
+    usuario = USUARIOS_TESTE.get(email)
+
+    if usuario and usuario['senha'] == senha:
+        print("\nLogin realizado com sucesso!")
+        papel = usuario['papel']
+
+        # Colaborador pode ter qualquer papel, Aluno tem papel 'Aluno'
+        if tipo_acesso == "Aluno" and papel == "Aluno":
+             print("\nLogin realizado com sucesso!")
+             area_aluno(email)
+        elif tipo_acesso == "Colaborador" and papel != "Aluno":
+             print(f"\nLogin realizado com sucesso como {papel}!")
+             area_colaborador(email, papel)
+        else:
+             print("\nFalha na autenticação. E-mail, senha ou perfil incorretos para este tipo de acesso.")
+             
+    else:
+        print("\nFalha na autenticação. E-mail ou senha inválidos.")
+
+    input("\nPressione ENTER para voltar ao Menu Inicial...")
+
+def area_aluno(email):
+    #3.1. Área do Aluno (Após Login - Opção 2)"""
+    print("\n" + "=" * 40)
+    print(f"BEM-VINDO(A) À ÁREA DO ALUNO")
+    print("=" * 40)
+
+    print("\nVocê está na área principal.")
+
+    print("\nFuncionalidades:")
+    print("- Desempenho Acadêmico: Notas, Médias e Faltas.")
+    print("- Conteúdo Programático das disciplinas.")
+    print("- Projetos e Avaliações: PIM e Exame.")
+    print("- Simulador/Cálculo de Notas.")
+    print("- Calendário Acadêmico.")
+    print("- Área da Secretaria Virtual.")
+    print("- Área Financeira.")
+    print("- Contatos da Unidade.")
+
+    input("\nPressione ENTER para voltar a tela Inicial...")
+
+def area_colaborador(email, papel):
+    #Área de redirecionamento do Colaborador, baseada no Papel.
+    print("\n" + "#" * 60)
+    print(f"BEM-VINDO(A) À ÁREA DE {papel.upper()} - {email}")
+    print("#" * 60)
+
+    if papel == "Professor":
+        area_professor(email)
+    elif papel == "Secretaria":
+        area_secretaria(email)
+    elif papel == "Coordenador de Curso":
+        area_coordenador_curso(email)
+    elif papel == "Financeiro / Tesouraria":
+        area_financeiro(email)
+    elif papel == "Gestor de Campus":
+        area_gestor_campus(email)
+    else:
+        print("Perfil de Colaborador não mapeado.")
+
+# ------------------------------------------------------------------------------
+# A. ÁREA DO PROFESSOR
+# ------------------------------------------------------------------------------
+
+def area_professor(email):
+    """Funcionalidades e Fluxo do Professor."""
+    print("\n--- SELEÇÃO DE CURSO PARA PROFESSOR ---")
+    
+    # 1. Seleção de Curso
+    for i, curso in enumerate(CURSOS_OFERECIDOS):
+        print(f"[{i+1}] {curso}")
+    
+    while True:
+        try:
+            escolha = int(input("Você é professor de qual curso? (Número): "))
+            if 1 <= escolha <= len(CURSOS_OFERECIDOS):
+                curso_selecionado = CURSOS_OFERECIDOS[escolha - 1]
+                break
+            else:
+                print("Opção inválida.")
+        except ValueError:
+            print("Entrada inválida.")
+
+    print(f"\n--- Turmas de {curso_selecionado} ---")
+    
+    # 2. Visualização das Turmas (Simulação 1 Mat, 1 Not, 1 EAD)
+    turmas_disponiveis = [
+        t for t in TURMAS_GERADAS[curso_selecionado].keys() 
+        if TURMAS_GERADAS[curso_selecionado][t]['Horario'] in ["Matutino", "Noturno", "EAD"]
+    ]
+    
+    turmas_filtradas = []
+    # Garante que ele tenha 1 Matutino, 1 Noturno e 1 EAD (se existirem)
+    for horario in ["Matutino", "Noturno", "EAD"]:
+        turma = next((t for t in turmas_disponiveis if TURMAS_GERADAS[curso_selecionado][t]['Horario'] == horario), None)
+        if turma:
+            turmas_filtradas.append(turma)
+
+    if not turmas_filtradas:
+        print("Nenhuma turma encontrada para este curso e filtros.")
+        return
+        
+    for i, turma_nome in enumerate(turmas_filtradas):
+        turma_data = TURMAS_GERADAS[curso_selecionado][turma_nome]
+        print(f"[{i+1}] Turma: {turma_nome} | Horário: {turma_data['Horario']} | Alunos: {len(turma_data['Alunos'])}")
+        
+    while True:
+        escolha_turma = input("Selecione a turma para gerenciar (número) ou [0] Voltar: ")
+        if escolha_turma == '0':
+            return
+        
+        try:
+            idx = int(escolha_turma) - 1
+            if 0 <= idx < len(turmas_filtradas):
+                turma_escolhida = turmas_filtradas[idx]
+                gerenciar_turma_professor(TURMAS_GERADAS[curso_selecionado][turma_escolhida])
+                break
+            else:
+                print("Opção inválida.")
+        except ValueError:
+            print("Entrada inválida.")
+
+def gerenciar_turma_professor(turma_data):
+    """Ações específicas do Professor dentro de uma turma."""
+    
+    print(f"\n== GERENCIAMENTO DA TURMA: {turma_data['Alunos'][0]['Turma']} ==")
+    
+    print("1. Lista de Alunos e Desempenho (Notas/Faltas)")
+    print("2. Cronograma de Aulas e Conteúdo Programático")
+    print("3. Voltar")
+    
+    while True:
+        opcao = input("Selecione a opção: ")
+        
+        if opcao == '1':
+            print("\n--- LISTA DE ALUNOS E NOTAS/FALTAS ---")
+            print("{:<10} {:<30} {:<5} {:<5} {:<5} {:<7} {:<10} {:<15}".format(
+                  "RA", "NOME COMPLETO", "P1", "P2", "Trab", "Média", "Exame", "Situação"))
+            print("-" * 95)
+            
+            for aluno in turma_data['Alunos'][:10]: # Limita a 10 para visualização
+                notas = aluno['Notas']
+                print("{:<10} {:<30} {:<5.1f} {:<5.1f} {:<5.1f} {:<7.1f} {:<10} {:<15}".format(
+                      aluno['RA'], aluno['NomeCompleto'], notas['P1'], notas['P2'], notas['Trabalho'], 
+                      notas['Media'], notas['Exame'], aluno['Notas']['Situacao']))
+            print(f"\nExibindo 10 de {len(turma_data['Alunos'])} alunos. Faltas totais: {random.randint(50, 200)}.")
+            
+        elif opcao == '2':
+            print("\n--- CRONOGRAMA E CONTEÚDO PROGRAMÁTICO ---")
+            print("Cronograma: Seg/Qua das 19h às 22h (Sala A)")
+            print("Conteúdo: Módulo 1 (Introdução), Módulo 2 (Estruturas de Dados), Módulo 3 (Algoritmos Avançados).")
+            
+        elif opcao == '3':
+            return
+        else:
+            print("Opção inválida.")
+
+# ------------------------------------------------------------------------------
+# B. ÁREA DA SECRETARIA
+# ------------------------------------------------------------------------------
+
+def area_secretaria(email):
+    """Funcionalidades e Fluxo da Secretaria."""
+    print("\n--- FUNCIONALIDADES DA SECRETARIA ---")
+    print("1. Cadastro de Novos Alunos (Pendentes/Manual)")
+    print("2. Visualização de Turmas da Unidade (Visão Ampla)")
+    print("3. Transferências de Alunos e Documentos")
+    print("4. Editar Informações Pessoais de Aluno (EXCLUSIVO)")
+    print("5. Sair da Área")
+
+    while True:
+        opcao = input("Selecione a opção: ")
+        
+        if opcao == '1':
+            gerenciar_cadastro_secretaria()
+        elif opcao == '2':
+            visualizar_turmas_secretaria()
+        elif opcao == '3':
+            print("Em desenvolvimento: Gerenciamento de Transferências e Documentos.")
+        elif opcao == '4':
+            editar_informacoes_aluno()
+        elif opcao == '5':
+            return
+        else:
+            print("Opção inválida.")
+
+def gerenciar_cadastro_secretaria():
+    """Gestão de Cadastro de Alunos (Online Pendente e Manual)."""
+    print("\n=== GESTÃO DE CADASTRO DE ALUNOS ===")
+    
+    # 1. Alunos com Matrícula Online (Pendentes)
+    print("\n--- 1. CADASTROS ONLINE PENDENTES ---")
+    if ALUNOS_ONLINE_PENDENTES:
+        for i, aluno in enumerate(ALUNOS_ONLINE_PENDENTES):
+            print(f"[{i+1}] **PENDENTE**: {aluno['nome_completo']} | Curso: {aluno['curso_interesse']} ({aluno['horario_interesse']}) | Status: {aluno['status']}")
+        
+        # Simulação de Matrícula (removendo da pendente e adicionando à matriculada)
+        while True:
+            escolha = input("Digite o número do cadastro para FINALIZAR MATRÍCULA (ou [0] Voltar): ")
+            if escolha == '0':
+                break
+            try:
+                idx = int(escolha) - 1
+                if 0 <= idx < len(ALUNOS_ONLINE_PENDENTES):
+                    aluno_pendente = ALUNOS_ONLINE_PENDENTES.pop(idx)
+                    
+                    # Simula a adição à lista de matriculados/turmas
+                    novo_aluno_matriculado = gerar_aluno_completo(
+                        aluno_pendente['curso_interesse'], 
+                        aluno_pendente['horario_interesse'],
+                        "MATR-2025-A", # Turma genérica para simplificar
+                        COORDENADORES.get(aluno_pendente['curso_interesse'], "N/A")
+                    )
+                    novo_aluno_matriculado["NomeCompleto"] = aluno_pendente["nome_completo"] # Mantém o nome real
+                    ALUNOS_MATRICULADOS.append(novo_aluno_matriculado)
+                    
+                    # O ALUNO AGORA APARECE NAS TURMAS
+                    print(f"\nSUCESSO: Aluno {novo_aluno_matriculado['NomeCompleto']} ({novo_aluno_matriculado['RA']}) MATRICULADO e INSERIDO NAS TURMAS.")
+                else:
+                    print("Número inválido.")
+            except ValueError:
+                print("Entrada inválida.")
+    else:
+        print("Nenhum cadastro online pendente no momento.")
+        
+    # 2. Cadastro Presencial/Telefone (Manual)
+    print("\n--- 2. NOVO CADASTRO MANUAL ---")
+    if input("Deseja inserir um novo aluno manualmente? (s/n): ").lower() == 's':
+        nome = input("Nome Completo: ")
+        # ... (Outros campos para preenchimento manual) ...
+        print(f"Aluno {nome} cadastrado manualmente e adicionado à fila de matrícula.")
+
+
+def visualizar_turmas_secretaria():
+    """Visualização Ampla de Turmas (5 Mat, 10 Not, 20 EAD)."""
+    print("\n=== VISUALIZAÇÃO AMPLA DE TURMAS DA UNIDADE ===")
+    
+    total_alunos = len(ALUNOS_MATRICULADOS)
+    total_turmas = sum(len(TURMAS_GERADAS[c]) for c in TURMAS_GERADAS)
+    
+    print(f"Total de Cursos: {len(CURSOS_OFERECIDOS)} | Total de Turmas: {total_turmas} | Total de Alunos: {total_alunos}")
+    
+    for curso, turmas in TURMAS_GERADAS.items():
+        print(f"\n--- Curso: {curso} (Coordenador: {COORDENADORES[curso]}) ---")
+        
+        # Agrupamento para fácil visualização
+        contagem_horario = {"Matutino": 0, "Noturno": 0, "EAD": 0}
+        
+        for turma_nome, data in turmas.items():
+            contagem_horario[data['Horario']] += 1
+            
+            # Simulação: exibe apenas o primeiro aluno da turma para validação do novo cadastro
+            primeiro_aluno = data['Alunos'][0]['NomeCompleto']
+            print(f"  [{data['Horario']}] {turma_nome} | Alunos: {len(data['Alunos'])} | 1º Aluno: {primeiro_aluno}")
+            
+        print(f"  Contagem: {contagem_horario['Matutino']} Matutinas, {contagem_horario['Noturno']} Noturnas, {contagem_horario['EAD']} EADs.")
+        
+def editar_informacoes_aluno():
+    """Permissão EXCLUSIVA da Secretaria."""
+    print("\n=== EDITAR INFORMAÇÕES PESSOAIS DE ALUNO (ACESSO EXCLUSIVO) ===")
+    
+    ra_busca = input("Digite o RA do aluno que deseja editar: ")
+    
+    aluno = next((a for a in ALUNOS_MATRICULADOS if a['RA'] == ra_busca), None)
+    
+    if aluno:
+        print(f"\nAluno encontrado: {aluno['NomeCompleto']}")
+        print(f"Email Atual: {aluno['InformacoesPessoais']['Email']}")
+        novo_email = input("Novo Email: ")
+        
+        aluno['InformacoesPessoais']['Email'] = novo_email
+        print(f"\nSUCESSO: Informações de {aluno['NomeCompleto']} atualizadas.")
+    else:
+        print("RA não encontrado.")
+
+# ------------------------------------------------------------------------------
+# C. ÁREA DO COORDENADOR DE CURSO
+# ------------------------------------------------------------------------------
+
+def area_coordenador_curso(email):
+    """Funcionalidades e Fluxo do Coordenador de Curso."""
+    print("\n--- SELEÇÃO DE CURSO PARA COORDENADOR ---")
+    
+    # 1. Seleção de Curso
+    for i, curso in enumerate(CURSOS_OFERECIDOS):
+        print(f"[{i+1}] {curso}")
+    
+    while True:
+        try:
+            escolha = int(input("Você é Coordenador de qual curso? (Número): "))
+            if 1 <= escolha <= len(CURSOS_OFERECIDOS):
+                curso_selecionado = CURSOS_OFERECIDOS[escolha - 1]
+                coordenador_nome = COORDENADORES[curso_selecionado]
+                break
+            else:
+                print("Opção inválida.")
+        except ValueError:
+            print("Entrada inválida.")
+
+    print(f"\n=== PAINEL DE COORDENAÇÃO: {curso_selecionado} ({coordenador_nome}) ===")
+    
+    turmas_curso = TURMAS_GERADAS.get(curso_selecionado, {})
+    total_alunos_curso = sum(len(data['Alunos']) for data in turmas_curso.values())
+    
+    print(f"\n[1] Turmas sob sua Coordenação ({len(turmas_curso)} no total, {total_alunos_curso} alunos):")
+    
+    for turma_nome, data in turmas_curso.items():
+        print(f"  - {turma_nome} ({data['Horario']}) | Alunos: {len(data['Alunos'])} | Desempenho Médio: {round(random.uniform(6.0, 9.5), 1)}")
+
+    print("\n[2] Professores Alocados no Curso (Simulação): Prof. Carlos, Profa. Betina, Prof. Diego.")
+    print("[3] Desempenho Geral do Curso: Acesso a relatórios de notas e faltas consolidados.")
+
+# ------------------------------------------------------------------------------
+# D. ÁREA DO FINANCEIRO
+# ------------------------------------------------------------------------------
+
+def area_financeiro(email):
+    """Funcionalidades do Financeiro/Tesouraria."""
+    print("\n--- FUNCIONALIDADES DO FINANCEIRO / TESOURARIA ---")
+    print("1. Solicitações de Correção de Situação Financeira")
+    print("2. Pagamentos Pendentes (Total de R$ 350.000,00 em aberto)")
+    print("3. Parcelamento de Débitos Pendentes")
+    print("4. Emissão de Boletos e Notas Fiscais")
+
+# ------------------------------------------------------------------------------
+# E. ÁREA DO GESTOR DE CAMPUS
+# ------------------------------------------------------------------------------
+
+def area_gestor_campus(email):
+    """Funcionalidades do Gestor de Campus."""
+    print("\n--- FUNCIONALIDADES DO GESTOR DE CAMPUS ---")
+    print("1. Eventos Programados: Feira de Inovação (25/11), Dia de Portas Abertas (10/12)")
+    print("2. Eventos Pendentes: Reserva de Auditório para Formatura")
+    print("3. Alunos Já Cadastrados no Sistema para Participar de Eventos (580 inscritos)")
+
+# Início do Sistema
+if __name__ == "__main__":
+    tela_login_acesso_inicial()
